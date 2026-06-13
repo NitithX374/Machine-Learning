@@ -1,7 +1,7 @@
 # สคริปต์ทดลองตั้งต้น (ถูกแทนที่ด้วย ML_Fundamentals.ipynb แล้ว)
 xor_mlp.py
 xor_mlp_numpy.py
-
+XOR_MLP.ipynb
 # Claude Code: settings ในเครื่อง + ไฟล์ scratch
 .claude/
 

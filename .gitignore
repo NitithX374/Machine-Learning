@@ -1,1 +1,11 @@
+# สคริปต์ทดลองตั้งต้น (ถูกแทนที่ด้วย ML_Fundamentals.ipynb แล้ว)
+xor_mlp.py
 xor_mlp_numpy.py
+
+# Claude Code: settings ในเครื่อง + ไฟล์ scratch
+.claude/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

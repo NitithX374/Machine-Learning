@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backpropagation Visualizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    --bg:#11161D; --panel:#1A222C; --panel2:#212B37; --border:#2C3744;
+    --text:#E6EAF0; --dim:#8A96A6; --scan:#4FD8C9; --result:#F5A75C;
+    --pool:#C792EA; --flat:#7FB3FF; --mlp:#9BE15D;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Sarabun',sans-serif;
+        display:flex; justify-content:center; padding:20px 12px 40px; -webkit-font-smoothing:antialiased; }
+  .app{ width:100%; max-width:440px; }
+  a.back{ font-size:12px; color:var(--dim); text-decoration:none; }
+  a.back:hover{ color:var(--scan); }
+  .eyebrow{ font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--scan); font-weight:600; margin:10px 0 4px; }
+  h1{ font-size:20px; margin:0 0 4px; font-weight:700; }
+  .subtitle{ font-size:12px; color:var(--dim); margin:0 0 14px; }
+  .pipeline{ display:flex; gap:6px; margin-bottom:14px; }
+  .pill{ flex:1; text-align:center; font-size:11px; padding:6px 4px; border-radius:8px;
+         background:var(--panel); color:var(--dim); border:1px solid var(--border); transition:.25s; font-weight:600; }
+  .pill.fwd{ background:rgba(79,216,201,.12); color:var(--scan); border-color:var(--scan); }
+  .pill.bwd{ background:rgba(245,167,92,.14); color:var(--result); border-color:var(--result); }
+  .stepbar{ height:4px; background:var(--panel); border-radius:2px; margin-bottom:16px; overflow:hidden; }
+  .stepbar-fill{ height:100%; background:var(--scan); transition:width .3s, background .3s; border-radius:2px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+  svg{ width:100%; display:block; }
+  text{ font-family:'JetBrains Mono',monospace; }
+  #explainTitle{ font-weight:700; margin-bottom:6px; font-size:14px; }
+  #explainBody{ font-size:13.5px; line-height:1.7; color:var(--dim); }
+  #explainBody b{ color:var(--text); }
+  .formula{ font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--scan);
+            background:var(--panel2); border-radius:8px; padding:8px 10px; margin-top:8px; display:block; word-break:break-word; }
+  .formula.bwd{ color:var(--result); }
+  .controls{ display:flex; gap:8px; }
+  .controls button{ flex:1; padding:10px; border-radius:10px; border:1px solid var(--border);
+                     background:var(--panel); color:var(--text); font-family:'Sarabun',sans-serif;
+                     font-size:13px; font-weight:600; cursor:pointer; transition:.2s; }
+  .controls button:hover{ border-color:var(--scan); color:var(--scan); }
+  .controls button:disabled{ opacity:.35; cursor:default; }
+  #playBtn.playing{ background:rgba(79,216,201,.15); border-color:var(--scan); color:var(--scan); }
+  #stepCounter{ text-align:center; margin-top:8px; font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="app">
+  <a class="back" href="index.html">← กลับหน้ารวม</a>
+  <div class="eyebrow">หัวใจของการเรียนรู้</div>
+  <h1>Backpropagation ทีละขั้น</h1>
+  <p class="subtitle">forward คำนวณคำตอบ → วัด loss → gradient ไหลย้อนกลับด้วย chain rule</p>
+
+  <div class="pipeline">
+    <div class="pill" data-phase="fwd">→ Forward</div>
+    <div class="pill" data-phase="loss">Loss</div>
+    <div class="pill" data-phase="bwd">← Backward</div>
+    <div class="pill" data-phase="update">Update</div>
+  </div>
+  <div class="stepbar"><div class="stepbar-fill" id="stepFill"></div></div>
+
+  <div class="panel"><svg id="net" viewBox="0 0 360 210"></svg></div>
+  <div class="panel">
+    <div id="explainTitle"></div>
+    <div id="explainBody"></div>
+  </div>
+
+  <div class="controls">
+    <button id="prevBtn">◀ ก่อนหน้า</button>
+    <button id="playBtn">▶ เล่นอัตโนมัติ</button>
+    <button id="nextBtn">ถัดไป ▶</button>
+  </div>
+  <div id="stepCounter"></div>
+</div>
+
+<script>
+  // ---------- fixed tiny network 2-2-1, one example ----------
+  var x=[1,0], y=1, lr=0.5;
+  var W1=[[0.5,-0.4],[0.3,0.8]], b1=[0.1,-0.2], W2=[0.7,-0.6], b2=0.2;
+  var sig=v=>1/(1+Math.exp(-v));
+  // forward
+  var z1=[0,0],a1=[0,0];
+  for(var j=0;j<2;j++){ z1[j]=W1[0][j]*x[0]+W1[1][j]*x[1]+b1[j]; a1[j]=sig(z1[j]); }
+  var z2=W2[0]*a1[0]+W2[1]*a1[1]+b2, a2=sig(z2);
+  var L=0.5*(a2-y)*(a2-y);
+  // backward
+  var d2=(a2-y)*a2*(1-a2);
+  var dW2=[d2*a1[0], d2*a1[1]], db2=d2;
+  var d1=[d2*W2[0]*a1[0]*(1-a1[0]), d2*W2[1]*a1[1]*(1-a1[1])];
+  var dW1=[[d1[0]*x[0],d1[1]*x[0]],[d1[0]*x[1],d1[1]*x[1]]];
+  var f=(v)=>v.toFixed(2);
+
+  // ---------- geometry ----------
+  var IX=46, HX=180, OX=310;
+  var inY=[70,150], hidY=[70,150], outY=110;
+  var inP=[[IX,inY[0]],[IX,inY[1]]], hP=[[HX,hidY[0]],[HX,hidY[1]]], oP=[OX,outY];
+
+  // step: 0 intro,1 h0,2 h1,3 out,4 loss,5 d2,6 dW2,7 d1,8 dW1,9 update,10 done
+  var TOTAL=11, step=0, playing=false, timer=null;
+  function phase(s){ if(s<=3) return 'fwd'; if(s===4) return 'loss'; if(s<=8) return 'bwd'; return 'update'; }
+
+  function edge(p1,p2,active,color){
+    return `<line x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}" stroke="${active?color:'#2C3744'}" stroke-width="${active?2.5:1}"/>`;
+  }
+  function node(p,r,fill,label,sub){
+    var t=`<circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="${fill}"/>`;
+    if(label!==null) t+=`<text x="${p[0]}" y="${p[1]+4}" fill="#11161D" font-size="11" font-weight="700" text-anchor="middle">${label}</text>`;
+    if(sub) t+=`<text x="${p[0]}" y="${p[1]-r-6}" fill="#8A96A6" font-size="10" text-anchor="middle">${sub}</text>`;
+    return t;
+  }
+
+  function drawNet(){
+    var fwdC='#4FD8C9', bwdC='#F5A75C', s=step;
+    var hi={ // which hidden node is active
+      h0: s===1, h1: s===2, out: s===3||s===5||s===6,
+    };
+    var g='';
+    // edges input->hidden
+    for(var i=0;i<2;i++) for(var j=0;j<2;j++){
+      var act=false,col=fwdC;
+      if((s===1&&j===0)||(s===2&&j===1)) act=true;                 // forward into hidden
+      if(s===7||s===8){ act=true; col=bwdC; }                       // backward grads on W1
+      g+=edge(inP[i],hP[j],act,col);
+    }
+    // edges hidden->output
+    for(var j2=0;j2<2;j2++){
+      var act2=false,col2=fwdC;
+      if(s===3) act2=true;                                          // forward into output
+      if(s===5||s===6||s===7) { act2=true; col2=bwdC; }             // backward through W2
+      g+=edge(hP[j2],oP,act2,col2);
+    }
+    // nodes
+    g+=node(inP[0],14,'#7FB3FF',x[0],'x₁');
+    g+=node(inP[1],14,'#7FB3FF',x[1],'x₂');
+    g+=node(hP[0], 16, hi.h0?'#4FD8C9':'#3a4a5a', s>=1?f(a1[0]):'?','h₁');
+    g+=node(hP[1], 16, hi.h1?'#4FD8C9':'#3a4a5a', s>=2?f(a1[1]):'?','h₂');
+    g+=node(oP, 18, (s>=3&&s<5)?'#4FD8C9':(s>=5?'#F5A75C':'#3a4a5a'), s>=3?f(a2):'?','ŷ');
+    // target
+    g+=`<text x="${OX}" y="${outY+44}" fill="#9BE15D" font-size="11" text-anchor="middle">เป้าหมาย y = ${y}</text>`;
+    document.getElementById('net').innerHTML=g;
+  }
+
+  var EX=[
+    {t:'เครือข่ายจิ๋ว 2-2-1 + ตัวอย่าง 1 ชุด',
+     b:`input <b>x = [${x[0]}, ${x[1]}]</b> เป้าหมาย <b>y = ${y}</b> · จุดน้ำเงิน = input, เขียว = hidden, ส้ม = output ทุกเส้นมี weight ของตัวเอง — เรากำลังจะดูว่ามันเรียนรู้ยังไงจาก 1 ตัวอย่างนี้`},
+    {t:'Forward — hidden neuron 1', f:`z₁ = w·x + b = ${f(z1[0])} → a₁ = σ(z₁) = ${f(a1[0])}`,
+     b:`hidden neuron แรกรวม input ถ่วงน้ำหนักแล้วผ่าน sigmoid — ได้ค่า activation <b>${f(a1[0])}</b>`},
+    {t:'Forward — hidden neuron 2', f:`z₂ = w·x + b = ${f(z1[1])} → a₂ = σ(z₂) = ${f(a1[1])}`,
+     b:`hidden neuron ที่สองทำแบบเดียวกัน ได้ <b>${f(a1[1])}</b> — สองค่านี้คือ "feature" ที่ชั้นถัดไปใช้`},
+    {t:'Forward — output', f:`z = W₂·a + b = ${f(z2)} → ŷ = σ(z) = ${f(a2)}`,
+     b:`output รวม activation ของ hidden ถ่วงน้ำหนักแล้วผ่าน sigmoid → คำทำนาย <b>ŷ = ${f(a2)}</b>`},
+    {t:'Loss — วัดว่าผิดแค่ไหน', f:`L = ½(ŷ − y)² = ½(${f(a2)} − ${y})² = ${f(L)}`,
+     b:`เทียบคำทำนาย ${f(a2)} กับเป้าหมาย ${y} ได้ loss = <b>${f(L)}</b> — เป้าหมายคือทำให้ค่านี้เล็กที่สุด`},
+    {t:'Backward — delta ที่ output', f:`δ = (ŷ − y)·ŷ(1−ŷ) = ${f(d2)}`, bwd:true,
+     b:`เริ่มไหลย้อนกลับ! δ บอกว่า "ก่อน sigmoid ของ output ต้องขยับทางไหน" = <b>${f(d2)}</b> (chain rule: dL/dŷ × dŷ/dz)`},
+    {t:'Backward — gradient ของ W₂', f:`∂L/∂W₂ = δ · a = [${f(dW2[0])}, ${f(dW2[1])}]`, bwd:true,
+     b:`gradient ของ weight แต่ละเส้น = δ ของ output × activation ที่ไหลเข้าเส้นนั้น — บอกว่าควรปรับ W₂ ไปทางไหน`},
+    {t:'Backward — delta ของ hidden', f:`δⱼ = δ · W₂ⱼ · aⱼ(1−aⱼ) = [${f(d1[0])}, ${f(d1[1])}]`, bwd:true,
+     b:`ส่ง δ ของ output ย้อนผ่าน W₂ กลับไปหา hidden แล้วคูณอนุพันธ์ sigmoid ของชั้นนั้น — <b>นี่คือหัวใจของ backprop</b>: error กระจายย้อนกลับทีละชั้น`},
+    {t:'Backward — gradient ของ W₁', f:`∂L/∂W₁ = δⱼ · xᵢ`, bwd:true,
+     b:`gradient ของ weight ชั้นแรก = δ ของ hidden × input — ตอนนี้รู้แล้วว่า <b>ทุก weight</b> ในเครือข่ายควรขยับไปทางไหน`},
+    {t:'Update — ปรับ weight ลง', f:`w ← w − lr · ∂L/∂w   (lr = ${lr})`,
+     b:`ขยับทุก weight "สวนทาง" gradient ทีละก้าวเล็ก ๆ เพื่อลด loss — ทำซ้ำวงจรนี้หลายพันรอบ โมเดลก็ค่อย ๆ เก่งขึ้น`},
+    {t:'ครบ 1 รอบ! 🎉',
+     b:`<b>forward → loss → backward → update</b> = วงจรเดียวที่ใช้เทรนทุกอย่างตั้งแต่ MLP จิ๋วนี้จนถึง LLM พันล้านพารามิเตอร์ ต่างกันแค่ขนาด ไม่ใช่หลักการ`},
+  ];
+
+  function render(){
+    var fill=document.getElementById('stepFill');
+    fill.style.width=(step/(TOTAL-1)*100)+'%';
+    fill.style.background = phase(step)==='bwd'||phase(step)==='update' ? '#F5A75C' : '#4FD8C9';
+    document.getElementById('stepCounter').textContent=`ขั้นที่ ${step+1} / ${TOTAL}`;
+    var ph=phase(step);
+    document.querySelectorAll('.pill').forEach(p=>{
+      p.classList.remove('fwd','bwd');
+      if(p.dataset.phase===ph) p.classList.add(ph==='bwd'||ph==='update'?'bwd':'fwd');
+    });
+    drawNet();
+    var e=EX[step];
+    document.getElementById('explainTitle').textContent=e.t;
+    document.getElementById('explainBody').innerHTML=e.b + (e.f?`<span class="formula ${e.bwd?'bwd':''}">${e.f}</span>`:'');
+    document.getElementById('prevBtn').disabled=step===0;
+    document.getElementById('nextBtn').disabled=step===TOTAL-1;
+  }
+  function stop(){ playing=false; document.getElementById('playBtn').textContent='▶ เล่นอัตโนมัติ'; document.getElementById('playBtn').classList.remove('playing'); clearInterval(timer); }
+  function play(){ playing=true; document.getElementById('playBtn').textContent='⏸ หยุด'; document.getElementById('playBtn').classList.add('playing');
+    timer=setInterval(()=>{ if(step>=TOTAL-1){ stop(); return; } step++; render(); }, 1600); }
+  document.getElementById('prevBtn').onclick=()=>{ stop(); step=Math.max(0,step-1); render(); };
+  document.getElementById('nextBtn').onclick=()=>{ stop(); step=Math.min(TOTAL-1,step+1); render(); };
+  document.getElementById('playBtn').onclick=()=>{ playing?stop():play(); };
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight'){stop();step=Math.min(TOTAL-1,step+1);render();} if(e.key==='ArrowLeft'){stop();step=Math.max(0,step-1);render();} });
+  render();
+</script>
+</body>
+</html>

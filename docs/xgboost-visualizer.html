@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XGBoost Visualizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    --bg:#11161D; --panel:#1A222C; --panel2:#212B37; --border:#2C3744;
+    --text:#E6EAF0; --dim:#8A96A6; --scan:#4FD8C9; --result:#F5A75C;
+    --pool:#C792EA; --flat:#7FB3FF; --mlp:#9BE15D;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Sarabun',sans-serif;
+        display:flex; justify-content:center; padding:20px 12px 40px; -webkit-font-smoothing:antialiased; }
+  .app{ width:100%; max-width:440px; }
+  a.back{ font-size:12px; color:var(--dim); text-decoration:none; }
+  a.back:hover{ color:var(--result); }
+  .eyebrow{ font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--result); font-weight:600; margin:10px 0 4px; }
+  h1{ font-size:20px; margin:0 0 4px; font-weight:700; }
+  .subtitle{ font-size:12px; color:var(--dim); margin:0 0 14px; }
+  .stepbar{ height:4px; background:var(--panel); border-radius:2px; margin-bottom:16px; overflow:hidden; }
+  .stepbar-fill{ height:100%; background:var(--result); transition:width .3s; border-radius:2px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+  .label{ font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; font-weight:600; text-align:center; margin-bottom:8px; }
+  svg{ width:100%; display:block; }
+  text{ font-family:'JetBrains Mono',monospace; }
+  .stats{ display:flex; gap:10px; margin-bottom:12px; }
+  .stat{ flex:1; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+  .stat .k{ font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  .stat .v{ font-size:22px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  #explainTitle{ font-weight:700; margin-bottom:6px; font-size:14px; }
+  #explainBody{ font-size:13.5px; line-height:1.7; color:var(--dim); }
+  #explainBody b{ color:var(--text); }
+  .formula{ font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--result);
+            background:var(--panel2); border-radius:8px; padding:8px 10px; margin-top:8px; display:block; }
+  .controls{ display:flex; gap:8px; }
+  .controls button{ flex:1; padding:10px; border-radius:10px; border:1px solid var(--border);
+                     background:var(--panel); color:var(--text); font-family:'Sarabun',sans-serif;
+                     font-size:13px; font-weight:600; cursor:pointer; transition:.2s; }
+  .controls button:hover{ border-color:var(--result); color:var(--result); }
+  .controls button:disabled{ opacity:.35; cursor:default; }
+  #playBtn.playing{ background:rgba(245,167,92,.15); border-color:var(--result); color:var(--result); }
+  #stepCounter{ text-align:center; margin-top:8px; font-size:12px; color:var(--dim); }
+  .legend{ display:flex; justify-content:center; gap:16px; font-size:12px; color:var(--dim); margin-top:8px; flex-wrap:wrap; }
+  .dot{ display:inline-block; width:12px; height:3px; border-radius:2px; vertical-align:middle; margin-right:5px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <a class="back" href="index.html">← กลับหน้ารวม</a>
+  <div class="eyebrow">Gradient Boosting ทีละต้น</div>
+  <h1>XGBoost สร้างต้นไม้ทีละต้น</h1>
+  <p class="subtitle">เริ่มจากเดาค่าเฉลี่ย แล้วเพิ่มต้นไม้มาแก้ "ส่วนที่ยังพลาด" (residual) ทีละต้น</p>
+
+  <div class="stats">
+    <div class="stat"><div class="k">ต้นไม้</div><div class="v" id="nT">0</div></div>
+    <div class="stat"><div class="k">error (SSE)</div><div class="v" id="sse">–</div></div>
+  </div>
+
+  <div class="stepbar"><div class="stepbar-fill" id="stepFill"></div></div>
+
+  <div class="panel">
+    <div class="label">ข้อมูล + คำทำนายปัจจุบัน</div>
+    <svg id="plot" viewBox="0 0 300 210"></svg>
+    <div class="legend">
+      <span><span class="dot" style="background:#7FB3FF"></span>ข้อมูลจริง</span>
+      <span><span class="dot" style="background:#F5A75C"></span>คำทำนาย</span>
+      <span><span class="dot" style="background:#C792EA"></span>residual (ส่วนที่พลาด)</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div id="explainTitle"></div>
+    <div id="explainBody"></div>
+  </div>
+
+  <div class="controls">
+    <button id="prevBtn">◀ ก่อนหน้า</button>
+    <button id="playBtn">▶ เล่นอัตโนมัติ</button>
+    <button id="nextBtn">ถัดไป ▶</button>
+  </div>
+  <div id="stepCounter"></div>
+</div>
+
+<script>
+  // ---------- data: 1D regression, one hump ----------
+  var N=24, xs=[], ys=[];
+  for(var i=0;i<N;i++){ var x=i/(N-1); xs.push(x); ys.push(0.12+0.76*Math.sin(Math.PI*x)); }
+  var mean = ys.reduce((a,b)=>a+b,0)/N;
+  var lr=0.45, ROUNDS=6;
+  var stumps=[]; // {s, lv, rv} contribution already scaled by lr
+
+  function predAt(x, upto){ var p=mean; for(var k=0;k<upto;k++){ var st=stumps[k]; p += (x<=st.s ? st.lv : st.rv); } return p; }
+
+  (function fit(){
+    for(var r=0;r<ROUNDS;r++){
+      var resid = xs.map(function(x,i){ return ys[i]-predAt(x, stumps.length); });
+      var bestSSE=Infinity,bS=0,bL=0,bR=0;
+      for(var c=0;c<N-1;c++){
+        var s=(xs[c]+xs[c+1])/2, lsum=0,ln=0,rsum=0,rn=0;
+        for(i=0;i<N;i++){ if(xs[i]<=s){lsum+=resid[i];ln++;} else {rsum+=resid[i];rn++;} }
+        if(ln===0||rn===0) continue;
+        var lm=lsum/ln, rm=rsum/rn, sse=0;
+        for(i=0;i<N;i++){ var t=xs[i]<=s?lm:rm; sse+=(resid[i]-t)*(resid[i]-t); }
+        if(sse<bestSSE){ bestSSE=sse; bS=s; bL=lm; bR=rm; }
+      }
+      stumps.push({ s:bS, lv:lr*bL, rv:lr*bR });
+    }
+  })();
+
+  function sseAt(upto){ var e=0; for(var i=0;i<N;i++){ var d=ys[i]-predAt(xs[i],upto); e+=d*d; } return e; }
+
+  // ---------- plot ----------
+  var PAD=16, W=300, Hh=210;
+  function px(x){ return PAD + x*(W-2*PAD); }
+  function py(v){ return (Hh-PAD) - ((v-0)/1)*(Hh-2*PAD); }  // v in [0,1]
+
+  var TOTAL=ROUNDS+1, step=0, playing=false, timer=null;
+
+  function drawPlot(){
+    var g='';
+    g+=`<rect x="${PAD}" y="${PAD}" width="${W-2*PAD}" height="${Hh-2*PAD}" fill="none" stroke="#2C3744" stroke-width="1"/>`;
+    // residual lines (point -> prediction)
+    xs.forEach(function(x,i){
+      var p=predAt(x,step);
+      g+=`<line x1="${px(x)}" y1="${py(ys[i])}" x2="${px(x)}" y2="${py(p)}" stroke="rgba(199,146,234,.5)" stroke-width="1.5"/>`;
+    });
+    // current split line of the most recent tree
+    if(step>=1){
+      var st=stumps[step-1];
+      g+=`<line x1="${px(st.s)}" y1="${PAD}" x2="${px(st.s)}" y2="${Hh-PAD}" stroke="#9BE15D" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    }
+    // prediction step-curve over grid
+    var pathPts=[];
+    for(var gx=0; gx<=120; gx++){ var x=gx/120; pathPts.push(px(x)+','+py(predAt(x,step))); }
+    g+=`<polyline points="${pathPts.join(' ')}" fill="none" stroke="#F5A75C" stroke-width="2.5"/>`;
+    // data points
+    xs.forEach(function(x,i){ g+=`<circle cx="${px(x)}" cy="${py(ys[i])}" r="3.5" fill="#7FB3FF"/>`; });
+    document.getElementById('plot').innerHTML=g;
+  }
+
+  function EXfor(s){
+    if(s===0) return {t:'เริ่มต้น — เดาด้วยค่าเฉลี่ย', f:`prediction = ค่าเฉลี่ยของ y = ${mean.toFixed(2)} (เส้นแบนราบ)`,
+      b:'ยังไม่มีต้นไม้สักต้น โมเดลเดาค่าเดียวกันหมด เส้นม่วงคือ <b>residual</b> = ระยะที่ยังพลาด ของแต่ละจุด — เป้าหมายคือทำให้สั้นลง'};
+    if(s===TOTAL-1) return {t:`ครบ ${ROUNDS} ต้น 🎄`, f:`error ลดจาก ${sseAt(0).toFixed(2)} → ${sseAt(step).toFixed(2)}`,
+      b:'ผลรวมของต้นไม้ "อ่อน ๆ" หลายต้น (แต่ละต้นแก้นิดเดียวด้วย <b>learning rate</b>) กลายเป็นโมเดลที่แม่นมาก — นี่คือหัวใจของ <b>gradient boosting</b> ที่ XGBoost ทำให้เร็วและทรงพลัง'};
+    return {t:`เพิ่มต้นไม้ที่ ${s} — แก้ residual`, f:`ต้นไม้ทำนาย "ส่วนที่พลาด" แล้วบวกเข้าไป × lr ${lr}`,
+      b:`ต้นไม้ต้นนี้<b>ไม่ได้ทำนาย y ตรง ๆ</b> แต่ทำนาย <b>residual</b> (สิ่งที่ต้นก่อนหน้าพลาด) เส้นเขียวประคือจุดที่มันเลือกแตกกิ่ง พอบวกเข้าไป เส้นทำนาย (ส้ม) ขยับเข้าใกล้ข้อมูลขึ้น residual สั้นลง`};
+  }
+
+  function render(){
+    document.getElementById('stepFill').style.width=(step/(TOTAL-1)*100)+'%';
+    document.getElementById('stepCounter').textContent=`ขั้นที่ ${step+1} / ${TOTAL}`;
+    document.getElementById('nT').textContent=step;
+    document.getElementById('sse').textContent=sseAt(step).toFixed(2);
+    drawPlot();
+    var e=EXfor(step);
+    document.getElementById('explainTitle').textContent=e.t;
+    document.getElementById('explainBody').innerHTML=e.b+(e.f?`<span class="formula">${e.f}</span>`:'');
+    document.getElementById('prevBtn').disabled=step===0;
+    document.getElementById('nextBtn').disabled=step===TOTAL-1;
+  }
+  function stop(){ playing=false; document.getElementById('playBtn').textContent='▶ เล่นอัตโนมัติ'; document.getElementById('playBtn').classList.remove('playing'); clearInterval(timer); }
+  function play(){ playing=true; document.getElementById('playBtn').textContent='⏸ หยุด'; document.getElementById('playBtn').classList.add('playing');
+    timer=setInterval(()=>{ if(step>=TOTAL-1){ stop(); return; } step++; render(); }, 1600); }
+  document.getElementById('prevBtn').onclick=()=>{ stop(); step=Math.max(0,step-1); render(); };
+  document.getElementById('nextBtn').onclick=()=>{ stop(); step=Math.min(TOTAL-1,step+1); render(); };
+  document.getElementById('playBtn').onclick=()=>{ playing?stop():play(); };
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight'){stop();step=Math.min(TOTAL-1,step+1);render();} if(e.key==='ArrowLeft'){stop();step=Math.max(0,step-1);render();} });
+  render();
+</script>
+</body>
+</html>

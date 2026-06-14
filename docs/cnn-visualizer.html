@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CNN Visualizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --bg:#11161D;
+    --panel:#1A222C;
+    --panel2:#212B37;
+    --border:#2C3744;
+    --text:#E6EAF0;
+    --dim:#8A96A6;
+    --scan:#4FD8C9;
+    --result:#F5A75C;
+    --pool:#C792EA;
+    --flat:#7FB3FF;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Sarabun',sans-serif;
+    display:flex; justify-content:center;
+    padding:20px 12px 40px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{ width:100%; max-width:440px; }
+  .eyebrow{ font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--scan); font-weight:600; margin-bottom:4px; }
+  h1{ font-size:20px; margin:0 0 14px; font-weight:700; }
+
+  .pipeline{ display:flex; gap:6px; margin-bottom:14px; }
+  .pill{ flex:1; text-align:center; font-size:11px; padding:6px 4px; border-radius:8px;
+         background:var(--panel); color:var(--dim); border:1px solid var(--border);
+         transition:.25s; font-weight:600; }
+  .pill.active{ background:rgba(79,216,201,.12); color:var(--scan); border-color:var(--scan); }
+
+  .stepbar{ height:4px; background:var(--panel); border-radius:2px; margin-bottom:16px; overflow:hidden; }
+  .stepbar-fill{ height:100%; background:var(--scan); transition:width .3s; border-radius:2px; }
+
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+
+  #viz{ display:flex; flex-direction:column; align-items:center; gap:16px; }
+  .group{ display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .label{ font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; font-weight:600; text-align:center; }
+
+  .grid{ display:grid; }
+  .cell{ display:flex; align-items:center; justify-content:center;
+         font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:500;
+         border-radius:6px; background:var(--panel2); border:1px solid var(--border);
+         color:var(--dim); transition:background .35s, border-color .35s, color .35s; }
+
+  .in-window{ background:rgba(79,216,201,.18); border-color:var(--scan); color:var(--text); }
+  .filter-cell{ background:rgba(127,179,255,.12); border-color:var(--flat); color:var(--text); font-weight:700; }
+  .window-cell{ background:rgba(79,216,201,.18); border-color:var(--scan); color:var(--text); font-weight:700; }
+  .result-cell{ background:rgba(245,167,92,.22); border-color:var(--result); color:var(--text); font-weight:700;
+                 animation:pulse 1s ease-in-out infinite alternate; }
+  .filled-cell{ background:rgba(245,167,92,.10); border-color:rgba(245,167,92,.30); color:var(--text); }
+  .pool-active{ background:rgba(199,146,234,.22); border-color:var(--pool); color:var(--text); font-weight:700;
+                 animation:pulse 1s ease-in-out infinite alternate; }
+  .pool-filled{ background:rgba(199,146,234,.14); border-color:rgba(199,146,234,.35); color:var(--text); font-weight:700; }
+  .channel-cell{ background:var(--panel2); border-color:var(--border); color:var(--dim); font-size:10px; }
+  @keyframes pulse{ from{ box-shadow:0 0 0 0 rgba(255,255,255,0); } to{ box-shadow:0 0 0 4px rgba(255,255,255,.06); } }
+
+  .flatten-cell{ background:rgba(127,179,255,.16); border-color:var(--flat); color:var(--text); font-weight:700;
+                 opacity:0; transform:translateY(-12px) scale(.7); animation:flatIn .5s ease forwards; }
+  @keyframes flatIn{ to{ opacity:1; transform:translateY(0) scale(1); } }
+
+  .compute-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .op{ font-size:18px; color:var(--dim); font-weight:700; }
+  .result-box{ width:46px; height:46px; display:flex; align-items:center; justify-content:center;
+                border-radius:8px; background:rgba(245,167,92,.18); border:2px solid var(--result);
+                font-family:'JetBrains Mono',monospace; font-weight:700; font-size:18px; color:var(--text); }
+
+  .channels{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .channel{ display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .ch-label{ font-size:10px; color:var(--dim); text-align:center; max-width:100px; }
+
+  .arrow{ font-size:13px; color:var(--dim); font-weight:600; }
+
+  #notePanel{ font-size:13px; line-height:1.6; background:rgba(79,216,201,.06); border-color:rgba(79,216,201,.25); }
+
+  #explainTitle{ font-weight:700; margin-bottom:6px; font-size:14px; }
+  #explainBody{ font-size:13.5px; line-height:1.65; color:var(--dim); }
+
+  .controls{ display:flex; gap:8px; }
+  .controls button{ flex:1; padding:10px; border-radius:10px; border:1px solid var(--border);
+                     background:var(--panel); color:var(--text); font-family:'Sarabun',sans-serif;
+                     font-size:13px; font-weight:600; cursor:pointer; transition:.2s; }
+  .controls button:hover{ border-color:var(--scan); color:var(--scan); }
+  .controls button:disabled{ opacity:.35; cursor:default; }
+  .controls button:focus-visible{ outline:2px solid var(--scan); outline-offset:2px; }
+  #playBtn.playing{ background:rgba(79,216,201,.15); border-color:var(--scan); color:var(--scan); }
+
+  #stepCounter{ text-align:center; margin-top:8px; font-size:12px; color:var(--dim); }
+
+  @media (prefers-reduced-motion: reduce){
+    .result-cell, .pool-active{ animation:none; }
+    .flatten-cell{ animation:none; opacity:1; transform:none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="eyebrow">ทำความเข้าใจ CNN ทีละขั้น</div>
+  <h1>Convolution → Pooling → Flatten</h1>
+
+  <div class="pipeline">
+    <div class="pill" data-stage="conv">1 · Convolution</div>
+    <div class="pill" data-stage="pool">2 · Pooling</div>
+    <div class="pill" data-stage="flat">3 · Flatten</div>
+    <div class="pill" data-stage="dense">4 · Dense</div>
+  </div>
+
+  <div class="stepbar"><div class="stepbar-fill" id="stepFill"></div></div>
+
+  <div class="panel"><div id="viz"></div></div>
+  <div class="panel" id="notePanel" style="display:none"></div>
+  <div class="panel">
+    <div id="explainTitle"></div>
+    <div id="explainBody"></div>
+  </div>
+
+  <div class="controls">
+    <button id="prevBtn">◀ ก่อนหน้า</button>
+    <button id="playBtn">▶ เล่นอัตโนมัติ</button>
+    <button id="nextBtn">ถัดไป ▶</button>
+  </div>
+  <div id="stepCounter"></div>
+</div>
+
+<script>
+  // ---------- data ----------
+  const INPUT = [
+    [1,1,1,0,0,0],
+    [1,1,1,0,0,0],
+    [1,1,1,0,0,0],
+    [1,1,1,0,0,0],
+    [1,1,1,0,0,0],
+    [1,1,1,0,0,0],
+  ];
+  const FILTER = [[1,0,-1],[1,0,-1],[1,0,-1]];
+
+  function convAt(r,c){
+    let s=0;
+    for(let i=0;i<3;i++) for(let j=0;j<3;j++) s += INPUT[r+i][c+j]*FILTER[i][j];
+    return s;
+  }
+  const FEATURE = [];
+  for(let r=0;r<4;r++){ const row=[]; for(let c=0;c<4;c++) row.push(convAt(r,c)); FEATURE.push(row); }
+
+  function poolAt(r,c){
+    let m=-Infinity;
+    for(let i=0;i<2;i++) for(let j=0;j<2;j++) m=Math.max(m, FEATURE[2*r+i][2*c+j]);
+    return m;
+  }
+  const POOLED=[];
+  for(let r=0;r<2;r++){ const row=[]; for(let c=0;c<2;c++) row.push(poolAt(r,c)); POOLED.push(row); }
+  const FLAT = [POOLED[0][0],POOLED[0][1],POOLED[1][0],POOLED[1][1]];
+
+  const CHANNELS = [
+    { name:'Filter 1 — ขอบแนวตั้ง', data:FEATURE },
+    { name:'Filter 2 — ขอบแนวนอน', data:[[2,2,2,2],[0,0,0,0],[0,0,0,0],[2,2,2,2]] },
+    { name:'Filter 3 — มุมภาพ', data:[[3,0,0,0],[0,1,1,0],[0,1,1,0],[0,0,0,3]] },
+  ];
+
+  const TOTAL = 25; // steps 0..24
+  let step = 0;
+  let playing = false;
+  let playTimer = null;
+
+  // ---------- helpers ----------
+  function gridHTML(data,size,gap,highlightFn){
+    const cols = data[0].length;
+    let html = `<div class="grid" style="grid-template-columns:repeat(${cols},${size}px); gap:${gap}px;">`;
+    for(let r=0;r<data.length;r++){
+      for(let c=0;c<data[r].length;c++){
+        const extra = highlightFn ? highlightFn(r,c) : '';
+        html += `<div class="cell ${extra}" style="width:${size}px;height:${size}px;">${data[r][c]}</div>`;
+      }
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  function getStage(s){
+    if(s<=17) return 'conv';
+    if(s<=22) return 'pool';
+    if(s===23) return 'flat';
+    return 'dense';
+  }
+
+  // ---------- viz builders ----------
+  function convVizHTML(){
+    const inConv = step>=1 && step<=16;
+    const idx = step-1;
+    const r = inConv ? Math.floor(idx/4) : null;
+    const c = inConv ? idx%4 : null;
+
+    let html = '';
+
+    // input grid
+    html += `<div class="group"><div class="label">Input image (6×6)</div>${
+      gridHTML(INPUT,34,3,(rr,cc)=>{
+        if(inConv && rr>=r && rr<r+3 && cc>=c && cc<c+3) return 'in-window';
+        return '';
+      })
+    }</div>`;
+
+    // static filter (only when not mid-conv)
+    if(!inConv){
+      html += `<div class="group"><div class="label">Filter weights (คงที่ทุกตำแหน่ง)</div>${
+        gridHTML(FILTER,30,2,()=>'filter-cell')
+      }</div>`;
+    }
+
+    // compute row
+    if(inConv){
+      const window=[];
+      for(let i=0;i<3;i++){ const row=[]; for(let j=0;j<3;j++) row.push(INPUT[r+i][c+j]); window.push(row); }
+      html += `<div class="group">
+        <div class="label">Filter × หน้าต่างปัจจุบัน = ผลลัพธ์</div>
+        <div class="compute-row">
+          ${gridHTML(FILTER,30,2,()=>'filter-cell')}
+          <div class="op">×</div>
+          ${gridHTML(window,30,2,()=>'window-cell')}
+          <div class="op">=</div>
+          <div class="result-box">${FEATURE[r][c]}</div>
+        </div>
+      </div>`;
+    }
+
+    // feature map (progressive)
+    const featureCells = FEATURE.map((row,rr)=>row.map((v,cc)=>{
+      const linIdx = rr*4+cc;
+      if(step===0) return '·';
+      if(step<17 && linIdx>idx) return '·';
+      return v;
+    }));
+    const fmHighlight = (rr,cc)=>{
+      const linIdx = rr*4+cc;
+      if(inConv && rr===r && cc===c) return 'result-cell';
+      if(step===17) return 'filled-cell';
+      if(inConv && linIdx<idx) return 'filled-cell';
+      return '';
+    };
+    html += `<div class="group"><div class="label">Feature map (4×4)</div>${
+      gridHTML(featureCells,38,3,fmHighlight)
+    }</div>`;
+
+    // multi-filter panel
+    if(step===17){
+      html += `<div class="group">
+        <div class="label">Conv layer มีหลาย filter → หลาย channel</div>
+        <div class="channels">
+          ${CHANNELS.map(ch=>`<div class="channel"><div class="ch-label">${ch.name}</div>${gridHTML(ch.data,22,2,()=>'channel-cell')}</div>`).join('')}
+        </div>
+      </div>`;
+    }
+
+    return html;
+  }
+
+  function poolVizHTML(){
+    const inPool = step>=18 && step<=21;
+    const idx = step-18;
+    const pr = inPool ? Math.floor(idx/2) : null;
+    const pc = inPool ? idx%2 : null;
+
+    const fmHighlight = (rr,cc)=>{
+      if(inPool){
+        const br = Math.floor(rr/2), bc = Math.floor(cc/2);
+        if(br===pr && bc===pc) return 'pool-active';
+      }
+      return 'filled-cell';
+    };
+
+    const pooledCells = POOLED.map((row,rr)=>row.map((v,cc)=>{
+      const linIdx = rr*2+cc;
+      if(inPool) return linIdx<=idx ? v : '·';
+      return v;
+    }));
+    const poolHighlight = (rr,cc)=>{
+      const linIdx = rr*2+cc;
+      if(inPool && linIdx===idx) return 'result-cell';
+      if(inPool && linIdx<idx) return 'pool-filled';
+      if(step===22) return 'pool-filled';
+      return '';
+    };
+
+    return `
+      <div class="group"><div class="label">Feature map (4×4)</div>${gridHTML(FEATURE,38,3,fmHighlight)}</div>
+      <div class="group"><div class="label">Pooled map (2×2) — เลือกค่า max ของแต่ละบล็อก</div>${gridHTML(pooledCells,50,4,poolHighlight)}</div>
+    `;
+  }
+
+  function flattenVizHTML(){
+    return `
+      <div class="group"><div class="label">Pooled map (2×2)</div>${gridHTML(POOLED,50,4,()=>'pool-filled')}</div>
+      <div class="arrow">↓ Flatten</div>
+      <div class="group"><div class="label">Vector (1×4)</div>
+        <div class="grid" style="grid-template-columns:repeat(4,50px); gap:4px;">
+          ${FLAT.map((v,i)=>`<div class="cell flatten-cell" style="width:50px;height:50px; animation-delay:${i*0.15}s">${v}</div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function buildDenseSVG(){
+    const inputs=4, hidden=3;
+    const ix=40, hx=160, ox=270;
+    const inputY = i=> 15 + i*45;
+    const hiddenY = i=> 35 + i*55;
+    let lines='';
+    for(let i=0;i<inputs;i++) for(let j=0;j<hidden;j++){
+      lines += `<line x1="${ix}" y1="${inputY(i)}" x2="${hx}" y2="${hiddenY(j)}" stroke="#2C3744" stroke-width="1"/>`;
+    }
+    for(let j=0;j<hidden;j++){
+      lines += `<line x1="${hx}" y1="${hiddenY(j)}" x2="${ox}" y2="90" stroke="#2C3744" stroke-width="1"/>`;
+    }
+    let nodes='';
+    for(let i=0;i<inputs;i++) nodes += `<circle cx="${ix}" cy="${inputY(i)}" r="9" fill="#7FB3FF"/>`;
+    for(let j=0;j<hidden;j++) nodes += `<circle cx="${hx}" cy="${hiddenY(j)}" r="9" fill="#C792EA"/>`;
+    nodes += `<circle cx="${ox}" cy="90" r="11" fill="#F5A75C"/>`;
+    const label = `<text x="${ox}" y="118" fill="#8A96A6" font-size="11" text-anchor="middle" font-family="Sarabun">Output</text>`;
+    return lines+nodes+label;
+  }
+
+  function denseVizHTML(){
+    return `
+      <div class="group"><div class="label">Vector (1×4) จาก flatten</div>
+        <div class="grid" style="grid-template-columns:repeat(4,50px); gap:4px;">
+          ${FLAT.map(v=>`<div class="cell pool-filled" style="width:50px;height:50px;">${v}</div>`).join('')}
+        </div>
+      </div>
+      <div class="group"><div class="label">Fully Connected Layer → Output</div>
+        <svg viewBox="0 0 310 140" style="width:100%; max-width:300px;">${buildDenseSVG()}</svg>
+      </div>
+    `;
+  }
+
+  function vizHTML(){
+    if(step<=17) return convVizHTML();
+    if(step<=22) return poolVizHTML();
+    if(step===23) return flattenVizHTML();
+    return denseVizHTML();
+  }
+
+  // ---------- explanations ----------
+  function noteFor(s){
+    if(s>=1 && s<=16) return `💡 <b>Weight sharing:</b> filter ใช้ค่า weight เดิม [1, 0, -1] ทุกแถว ในทุกตำแหน่งที่เลื่อนไป — สิ่งที่เปลี่ยนคือ “พิกเซลที่อยู่ใต้กรอบ” ไม่ใช่ตัว weight`;
+    if(s===17) return `🧩 ในโมเดลจริง conv layer หนึ่งมี filter ได้หลายสิบ-หลายร้อยตัว แต่ละตัว weight ไม่เหมือนกัน → ได้ feature map หลายแผ่น (channels)`;
+    if(s>=18 && s<=22) return `📉 Pooling ไม่มี weight ให้เรียนรู้ — เป็นการลดขนาดข้อมูลแบบตายตัว (เลือกค่า max หรือ average)`;
+    return null;
+  }
+
+  function explainFor(s){
+    if(s===0) return {
+      title:'ภาพ Input ขนาด 6×6',
+      body:'ตัวเลขแต่ละช่องคือค่าความสว่างของพิกเซล (0 = มืด, 1 = สว่าง) ภาพนี้มีขอบแนวตั้งพาดกลางภาพ ด้านล่างคือ filter ขนาด 3×3 ที่จะใช้สแกนภาพ — กด “ถัดไป” เพื่อเริ่ม'
+    };
+    if(s>=1 && s<=16){
+      const idx=s-1, r=Math.floor(idx/4), c=idx%4, val=FEATURE[r][c];
+      let extra='';
+      if(c>0 && FEATURE[r][c]>FEATURE[r][c-1]) extra=' 🔍 ค่าพุ่งขึ้นเพราะ filter เริ่มทับซ้อนกับขอบของภาพ';
+      if(c>0 && FEATURE[r][c]<FEATURE[r][c-1]) extra=' ค่าลดลงเพราะ filter เลื่อนผ่านขอบไปแล้ว';
+      return {
+        title:`Convolution — กรอบที่ (แถว ${r+1}, คอลัมน์ ${c+1})`,
+        body:`คูณค่าพิกเซลทั้ง 9 ช่องในกรอบกับ weight ของ filter ตำแหน่งต่อตำแหน่ง แล้วบวกรวมทั้งหมด = ${val}${extra}`
+      };
+    }
+    if(s===17) return {
+      title:'Feature Map เสร็จแล้ว — และยังมี filter อื่นอีก',
+      body:'นี่คือผลจาก filter ตัวเดียว แต่ใน conv layer จริงจะมี filter หลายตัวทำงานพร้อมกัน แต่ละตัวมี weight เป็นของตัวเอง และจับ pattern คนละแบบ ผลลัพธ์คือ feature map หลายแผ่นซ้อนกัน เรียกว่า channels'
+    };
+    if(s>=18 && s<=21){
+      const idx=s-18, pr=Math.floor(idx/2), pc=idx%2, val=POOLED[pr][pc];
+      return {
+        title:`Max Pooling — บล็อกที่ (แถว ${pr+1}, คอลัมน์ ${pc+1})`,
+        body:`มองค่าใน feature map เป็นบล็อกละ 2×2 แล้วเลือกเฉพาะค่าที่มากที่สุดในบล็อกนั้นมาเก็บไว้ = ${val} ขั้นนี้ไม่มี weight ให้เรียนรู้ เป็นแค่การย่อขนาดข้อมูล`
+      };
+    }
+    if(s===22) return {
+      title:'ได้ Pooled Map ขนาด 2×2',
+      body:'จาก feature map 4×4 ถูกย่อลงเหลือ 2×2 — ข้อมูลเล็กลง 4 เท่า แต่ตำแหน่งขอบสำคัญยังถูกเก็บไว้'
+    };
+    if(s===23) return {
+      title:'Flatten — เรียงเป็นเวกเตอร์ 1 มิติ',
+      body:'นำค่าทุกช่องใน pooled map มาเรียงต่อกันเป็นแถวเดียว (vector) เพื่อให้ fully-connected layer ด้านถัดไปนำไปประมวลผลได้'
+    };
+    return {
+      title:'Fully Connected Layer → Output',
+      body:'เวกเตอร์จาก flatten จะเชื่อมเข้ากับทุก neuron ใน dense layer (จุดเชื่อมแต่ละจุดมี weight ของตัวเอง) ชั้นนี้เรียนรู้รวม feature ทั้งหมดเพื่อทำนายผลลัพธ์สุดท้าย เช่น คลาสของภาพ'
+    };
+  }
+
+  // ---------- render ----------
+  function render(){
+    document.getElementById('stepFill').style.width = (step/(TOTAL-1)*100)+'%';
+    document.getElementById('stepCounter').textContent = `ขั้นที่ ${step+1} / ${TOTAL}`;
+
+    const stage = getStage(step);
+    document.querySelectorAll('.pill').forEach(p=>p.classList.toggle('active', p.dataset.stage===stage));
+
+    document.getElementById('viz').innerHTML = vizHTML();
+
+    const note = noteFor(step);
+    const notePanel = document.getElementById('notePanel');
+    if(note){ notePanel.style.display='block'; notePanel.innerHTML = note; }
+    else notePanel.style.display='none';
+
+    const ex = explainFor(step);
+    document.getElementById('explainTitle').textContent = ex.title;
+    document.getElementById('explainBody').textContent = ex.body;
+
+    document.getElementById('prevBtn').disabled = step===0;
+    document.getElementById('nextBtn').disabled = step===TOTAL-1;
+  }
+
+  // ---------- controls ----------
+  function stopPlay(){
+    playing=false;
+    document.getElementById('playBtn').textContent='▶ เล่นอัตโนมัติ';
+    document.getElementById('playBtn').classList.remove('playing');
+    clearInterval(playTimer);
+  }
+  function startPlay(){
+    playing=true;
+    document.getElementById('playBtn').textContent='⏸ หยุด';
+    document.getElementById('playBtn').classList.add('playing');
+    playTimer = setInterval(()=>{
+      if(step>=TOTAL-1){ stopPlay(); return; }
+      step++; render();
+    },1300);
+  }
+
+  document.getElementById('prevBtn').addEventListener('click',()=>{ stopPlay(); step=Math.max(0,step-1); render(); });
+  document.getElementById('nextBtn').addEventListener('click',()=>{ stopPlay(); step=Math.min(TOTAL-1,step+1); render(); });
+  document.getElementById('playBtn').addEventListener('click',()=>{ playing ? stopPlay() : startPlay(); });
+  document.addEventListener('keydown',(e)=>{
+    if(e.key==='ArrowRight'){ stopPlay(); step=Math.min(TOTAL-1,step+1); render(); }
+    if(e.key==='ArrowLeft'){ stopPlay(); step=Math.max(0,step-1); render(); }
+  });
+
+  render();
+</script>
+</body>
+</html>

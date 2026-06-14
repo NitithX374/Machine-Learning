@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLP Visualizer — เรียนแก้ XOR</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    --bg:#11161D; --panel:#1A222C; --panel2:#212B37; --border:#2C3744;
+    --text:#E6EAF0; --dim:#8A96A6; --scan:#4FD8C9; --result:#F5A75C;
+    --pool:#C792EA; --flat:#7FB3FF; --mlp:#9BE15D;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Sarabun',sans-serif;
+        display:flex; justify-content:center; padding:20px 12px 40px; -webkit-font-smoothing:antialiased; }
+  .app{ width:100%; max-width:440px; }
+  a.back{ font-size:12px; color:var(--dim); text-decoration:none; }
+  a.back:hover{ color:var(--scan); }
+  .eyebrow{ font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--scan); font-weight:600; margin:10px 0 4px; }
+  h1{ font-size:20px; margin:0 0 4px; font-weight:700; }
+  .subtitle{ font-size:12px; color:var(--dim); margin:0 0 14px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+  canvas{ width:100%; max-width:340px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--border); }
+  .legend{ display:flex; justify-content:center; gap:16px; font-size:12px; color:var(--dim); margin-top:10px; }
+  .dot{ display:inline-block; width:10px; height:10px; border-radius:3px; vertical-align:middle; margin-right:5px; }
+  .stats{ display:flex; gap:10px; margin-bottom:12px; }
+  .stat{ flex:1; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+  .stat .k{ font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  .stat .v{ font-size:22px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .ctrlrow{ display:flex; align-items:center; gap:10px; margin:10px 0; }
+  .ctrlrow label{ font-size:12px; color:var(--dim); min-width:96px; }
+  .ctrlrow .val{ font-size:13px; font-weight:700; font-family:'JetBrains Mono',monospace; min-width:30px; text-align:right; }
+  input[type=range]{ flex:1; accent-color:var(--scan); }
+  .controls{ display:flex; gap:8px; margin-top:4px; }
+  .controls button{ flex:1; padding:10px; border-radius:10px; border:1px solid var(--border);
+                     background:var(--panel); color:var(--text); font-family:'Sarabun',sans-serif;
+                     font-size:13px; font-weight:600; cursor:pointer; transition:.2s; }
+  .controls button:hover{ border-color:var(--scan); color:var(--scan); }
+  #playBtn.playing{ background:rgba(79,216,201,.15); border-color:var(--scan); color:var(--scan); }
+  #explainTitle{ font-weight:700; margin-bottom:6px; font-size:14px; }
+  #explainBody{ font-size:13.5px; line-height:1.65; color:var(--dim); }
+  #explainBody b{ color:var(--text); }
+</style>
+</head>
+<body>
+<div class="app">
+  <a class="back" href="index.html">← กลับหน้ารวม</a>
+  <div class="eyebrow">เห็น neural network เรียนรู้สด ๆ</div>
+  <h1>MLP เรียนแก้ XOR</h1>
+  <p class="subtitle">กด “เทรน” แล้วดูเส้นแบ่ง (decision boundary) ค่อย ๆ บิดจนแยก XOR ได้</p>
+
+  <div class="stats">
+    <div class="stat"><div class="k">epoch</div><div class="v" id="epOut">0</div></div>
+    <div class="stat"><div class="k">loss (MSE)</div><div class="v" id="loOut">0.30</div></div>
+  </div>
+
+  <div class="panel">
+    <canvas id="cv" width="340" height="340"></canvas>
+    <div class="legend">
+      <span><span class="dot" style="background:#7FB3FF"></span>ทำนาย 0</span>
+      <span><span class="dot" style="background:#F5A75C"></span>ทำนาย 1</span>
+      <span>● = ข้อมูล XOR จริง</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ctrlrow">
+      <label>hidden neurons</label>
+      <input type="range" id="hid" min="1" max="8" step="1" value="4">
+      <span class="val" id="hidV">4</span>
+    </div>
+    <div class="ctrlrow">
+      <label>learning rate</label>
+      <input type="range" id="lr" min="0.1" max="5" step="0.1" value="1.5">
+      <span class="val" id="lrV">1.5</span>
+    </div>
+    <div class="controls">
+      <button id="playBtn">▶ เทรน</button>
+      <button id="stepBtn">+100 epoch</button>
+      <button id="resetBtn">↺ รีเซ็ต</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="explainTitle">ทำไม neuron เดียวแก้ XOR ไม่ได้?</div>
+    <div id="explainBody">XOR ต้องการเส้นแบ่งที่ <b>โค้งงอ</b> — neuron เดียวสร้างได้แค่เส้นตรงเส้นเดียว
+    ลองตั้ง hidden = <b>1</b> แล้วเทรนดู จะเห็นว่ามันแก้ไม่ได้ (loss ค้างสูง) พอเพิ่ม hidden เป็น 2+ มันถึงสร้างเส้นโค้งได้
+    — นี่คือเหตุผลที่ต้องมี <b>hidden layer</b></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+  var X=[[0,0],[0,1],[1,0],[1,1]], Y=[0,1,1,0];
+  var H=4, lr=1.5, W1,b1,W2,b2, ep=0, last=0.3, running=false, raf=null;
+  function sig(x){ return 1/(1+Math.exp(-x)); }
+  function init(){
+    H=+document.getElementById('hid').value;
+    W1=[[],[]]; b1=[]; W2=[];
+    for(var j=0;j<H;j++){ W1[0].push(Math.random()*2-1); W1[1].push(Math.random()*2-1); b1.push(Math.random()*2-1); W2.push(Math.random()*2-1); }
+    b2=Math.random()*2-1; ep=0; last=0.3;
+  }
+  function fwd(x){
+    var a1=[],j,i,z;
+    for(j=0;j<H;j++){ z=b1[j]; for(i=0;i<2;i++) z+=x[i]*W1[i][j]; a1.push(sig(z)); }
+    var z2=b2; for(j=0;j<H;j++) z2+=a1[j]*W2[j];
+    return { a1:a1, a2:sig(z2) };
+  }
+  function step(){
+    var dW1=[[],[]], db1=[], dW2=[], db2=0, loss=0, j,i,n;
+    for(j=0;j<H;j++){ dW1[0][j]=0; dW1[1][j]=0; db1[j]=0; dW2[j]=0; }
+    for(n=0;n<4;n++){
+      var o=fwd(X[n]), err=o.a2-Y[n]; loss+=err*err;
+      var d2=err*o.a2*(1-o.a2);
+      for(j=0;j<H;j++){ dW2[j]+=d2*o.a1[j]; var d1=d2*W2[j]*o.a1[j]*(1-o.a1[j]); db1[j]+=d1; for(i=0;i<2;i++) dW1[i][j]+=d1*X[n][i]; }
+      db2+=d2;
+    }
+    for(j=0;j<H;j++){ W2[j]-=lr*dW2[j]/4; b1[j]-=lr*db1[j]/4; W1[0][j]-=lr*dW1[0][j]/4; W1[1][j]-=lr*dW1[1][j]/4; }
+    b2-=lr*db2/4; ep++; last=loss/4;
+  }
+  function draw(){
+    var Ng=58, cell=cv.width/Ng, xi,yi;
+    for(yi=0;yi<Ng;yi++) for(xi=0;xi<Ng;xi++){
+      var gx=xi/(Ng-1)*1.4-0.2, gy=1-(yi/(Ng-1)*1.4-0.2);
+      var v=fwd([gx,gy]).a2;
+      var r=Math.round(127+v*(245-127)), g=Math.round(179+v*(167-179)), b=Math.round(255+v*(92-255));
+      ctx.fillStyle='rgba('+r+','+g+','+b+',0.82)'; ctx.fillRect(xi*cell,yi*cell,cell+1,cell+1);
+    }
+    for(var k=0;k<4;k++){
+      var px=(X[k][0]+0.2)/1.4*cv.width, py=(1.2-X[k][1])/1.4*cv.height;
+      ctx.beginPath(); ctx.arc(px,py,12,0,6.2832);
+      ctx.fillStyle='#11161D'; ctx.fill();
+      ctx.lineWidth=3; ctx.strokeStyle=Y[k]?'#F5A75C':'#7FB3FF'; ctx.stroke();
+      ctx.fillStyle='#E6EAF0'; ctx.font='700 13px JetBrains Mono, monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(String(Y[k]),px,py);
+    }
+  }
+  function render(){ document.getElementById('epOut').textContent=ep; document.getElementById('loOut').textContent=last.toFixed(3); }
+  function loop(){ if(!running) return; for(var s=0;s<3;s++) step(); draw(); render(); raf=requestAnimationFrame(loop); }
+  var pb=document.getElementById('playBtn');
+  function setBtn(){ pb.textContent=running?'⏸ หยุด':'▶ เทรน'; pb.classList.toggle('playing',running); }
+  pb.onclick=function(){ running=!running; setBtn(); if(running) loop(); };
+  document.getElementById('stepBtn').onclick=function(){ for(var s=0;s<100;s++) step(); draw(); render(); };
+  document.getElementById('resetBtn').onclick=function(){ running=false; setBtn(); if(raf) cancelAnimationFrame(raf); init(); draw(); render(); };
+  document.getElementById('hid').oninput=function(){ document.getElementById('hidV').textContent=this.value; running=false; setBtn(); if(raf) cancelAnimationFrame(raf); init(); draw(); render(); };
+  document.getElementById('lr').oninput=function(){ lr=+this.value; document.getElementById('lrV').textContent=lr.toFixed(1); };
+  init(); draw(); render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decision Tree Visualizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    --bg:#11161D; --panel:#1A222C; --panel2:#212B37; --border:#2C3744;
+    --text:#E6EAF0; --dim:#8A96A6; --scan:#4FD8C9; --result:#F5A75C;
+    --pool:#C792EA; --flat:#7FB3FF; --mlp:#9BE15D;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Sarabun',sans-serif;
+        display:flex; justify-content:center; padding:20px 12px 40px; -webkit-font-smoothing:antialiased; }
+  .app{ width:100%; max-width:440px; }
+  a.back{ font-size:12px; color:var(--dim); text-decoration:none; }
+  a.back:hover{ color:var(--mlp); }
+  .eyebrow{ font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--mlp); font-weight:600; margin:10px 0 4px; }
+  h1{ font-size:20px; margin:0 0 4px; font-weight:700; }
+  .subtitle{ font-size:12px; color:var(--dim); margin:0 0 14px; }
+  .stepbar{ height:4px; background:var(--panel); border-radius:2px; margin-bottom:16px; overflow:hidden; }
+  .stepbar-fill{ height:100%; background:var(--mlp); transition:width .3s; border-radius:2px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+  .label{ font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; font-weight:600; text-align:center; margin-bottom:8px; }
+  svg{ width:100%; display:block; }
+  text{ font-family:'JetBrains Mono',monospace; }
+  #explainTitle{ font-weight:700; margin-bottom:6px; font-size:14px; }
+  #explainBody{ font-size:13.5px; line-height:1.7; color:var(--dim); }
+  #explainBody b{ color:var(--text); }
+  .formula{ font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--mlp);
+            background:var(--panel2); border-radius:8px; padding:8px 10px; margin-top:8px; display:block; }
+  .controls{ display:flex; gap:8px; }
+  .controls button{ flex:1; padding:10px; border-radius:10px; border:1px solid var(--border);
+                     background:var(--panel); color:var(--text); font-family:'Sarabun',sans-serif;
+                     font-size:13px; font-weight:600; cursor:pointer; transition:.2s; }
+  .controls button:hover{ border-color:var(--mlp); color:var(--mlp); }
+  .controls button:disabled{ opacity:.35; cursor:default; }
+  #playBtn.playing{ background:rgba(155,225,93,.15); border-color:var(--mlp); color:var(--mlp); }
+  #stepCounter{ text-align:center; margin-top:8px; font-size:12px; color:var(--dim); }
+  .legend{ display:flex; justify-content:center; gap:16px; font-size:12px; color:var(--dim); margin-top:8px; }
+  .dot{ display:inline-block; width:10px; height:10px; border-radius:3px; vertical-align:middle; margin-right:5px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <a class="back" href="index.html">← กลับหน้ารวม</a>
+  <div class="eyebrow">ต้นไม้ตัดสินใจ ทีละการแตกกิ่ง</div>
+  <h1>Decision Tree เรียนแบ่งข้อมูล</h1>
+  <p class="subtitle">ถามทีละคำถาม (feature &lt; ค่า?) แบ่งข้อมูลจนแต่ละกลุ่ม "บริสุทธิ์"</p>
+
+  <div class="stepbar"><div class="stepbar-fill" id="stepFill"></div></div>
+
+  <div class="panel">
+    <div class="label">ข้อมูล 2 มิติ + เส้นแบ่ง</div>
+    <svg id="plot" viewBox="0 0 240 240"></svg>
+    <div class="legend">
+      <span><span class="dot" style="background:#7FB3FF"></span>คลาส A</span>
+      <span><span class="dot" style="background:#F5A75C"></span>คลาส B</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="label">ต้นไม้ที่กำลังโต</div>
+    <svg id="tree" viewBox="0 0 360 200"></svg>
+  </div>
+  <div class="panel">
+    <div id="explainTitle"></div>
+    <div id="explainBody"></div>
+  </div>
+
+  <div class="controls">
+    <button id="prevBtn">◀ ก่อนหน้า</button>
+    <button id="playBtn">▶ เล่นอัตโนมัติ</button>
+    <button id="nextBtn">ถัดไป ▶</button>
+  </div>
+  <div id="stepCounter"></div>
+</div>
+
+<script>
+  // ---------- data: XOR-like quadrants ----------
+  // A (blue=0): bottom-left & top-right | B (orange=1): top-left & bottom-right
+  var seed=42; function rnd(){ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; }
+  var pts=[];
+  function gen(cx,cy,cls,n){ for(var i=0;i<n;i++) pts.push({x:cx+(rnd()*2.6-1.3), y:cy+(rnd()*2.6-1.3), c:cls}); }
+  gen(2.5,2.5,0,6); gen(7.5,7.5,0,6);   // class A
+  gen(2.5,7.5,1,6); gen(7.5,2.5,1,6);   // class B
+
+  // plot transform (data 0..10 -> svg)
+  var PAD=14, S=240-2*PAD;
+  function px(x){ return PAD + x/10*S; }
+  function py(y){ return (240-PAD) - y/10*S; }
+
+  var TOTAL=5, step=0, playing=false, timer=null;
+
+  // shaded pure regions appear progressively: [x0,x1,y0,y1,class]
+  function regionsFor(s){
+    var r=[];
+    if(s>=2){ r.push([0,5,0,5,0]); r.push([0,5,5,10,1]); }   // left half split
+    if(s>=3){ r.push([5,10,0,5,1]); r.push([5,10,5,10,0]); } // right half split
+    return r;
+  }
+  function splitsFor(s){
+    var l=[];
+    if(s>=1) l.push({axis:'x',val:5,y0:0,y1:10});
+    if(s>=2) l.push({axis:'y',val:5,x0:0,x1:5});
+    if(s>=3) l.push({axis:'y',val:5,x0:5,x1:10});
+    return l;
+  }
+
+  function drawPlot(){
+    var g='';
+    // shaded regions
+    regionsFor(step).forEach(function(rg){
+      var fill = rg[4]===0 ? 'rgba(127,179,255,.13)' : 'rgba(245,167,92,.13)';
+      g+=`<rect x="${px(rg[0])}" y="${py(rg[3])}" width="${px(rg[1])-px(rg[0])}" height="${py(rg[2])-py(rg[3])}" fill="${fill}"/>`;
+    });
+    // frame
+    g+=`<rect x="${PAD}" y="${PAD}" width="${S}" height="${S}" fill="none" stroke="#2C3744" stroke-width="1"/>`;
+    // split lines
+    splitsFor(step).forEach(function(sp){
+      if(sp.axis==='x') g+=`<line x1="${px(sp.val)}" y1="${py(sp.y0)}" x2="${px(sp.val)}" y2="${py(sp.y1)}" stroke="#9BE15D" stroke-width="2" stroke-dasharray="4 3"/>`;
+      else g+=`<line x1="${px(sp.x0)}" y1="${py(sp.val)}" x2="${px(sp.x1)}" y2="${py(sp.val)}" stroke="#9BE15D" stroke-width="2" stroke-dasharray="4 3"/>`;
+    });
+    // points
+    pts.forEach(function(p){
+      g+=`<circle cx="${px(p.x)}" cy="${py(p.y)}" r="4.5" fill="${p.c===0?'#7FB3FF':'#F5A75C'}" stroke="#11161D" stroke-width="1"/>`;
+    });
+    document.getElementById('plot').innerHTML=g;
+  }
+
+  // ---------- tree diagram ----------
+  function tnode(x,y,txt,kind){
+    var w=txt.length*7+22, h=26;
+    var fill = kind==='split' ? '#212B37' : (kind==='A' ? 'rgba(127,179,255,.2)' : 'rgba(245,167,92,.2)');
+    var stroke = kind==='split' ? '#9BE15D' : (kind==='A' ? '#7FB3FF' : '#F5A75C');
+    return `<g><rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`+
+           `<text x="${x}" y="${y+4}" fill="#E6EAF0" font-size="11" text-anchor="middle">${txt}</text></g>`;
+  }
+  function tline(x1,y1,x2,y2){ return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#2C3744" stroke-width="1.5"/>`; }
+  function drawTree(){
+    var g='', rootX=180, rootY=28;
+    var lX=90, rX=270, midY=100, leafY=172;
+    if(step>=1){
+      g+=tline(rootX,rootY,lX,midY); g+=tline(rootX,rootY,rX,midY);
+    }
+    if(step>=2){ g+=tline(lX,midY,lX-55,leafY); g+=tline(lX,midY,lX+55,leafY); }
+    if(step>=3){ g+=tline(rX,midY,rX-55,leafY); g+=tline(rX,midY,rX+55,leafY); }
+    // root
+    g+= step>=1 ? tnode(rootX,rootY,'x < 5 ?','split') : tnode(rootX,rootY,'? (ผสมกัน)','split');
+    // left child
+    if(step>=2) g+=tnode(lX,midY,'y < 5 ?','split');
+    else if(step>=1) g+=tnode(lX,midY,'ผสม','split');
+    // right child
+    if(step>=3) g+=tnode(rX,midY,'y < 5 ?','split');
+    else if(step>=1) g+=tnode(rX,midY,'ผสม','split');
+    // leaves
+    if(step>=2){ g+=tnode(lX-55,leafY,'A','A'); g+=tnode(lX+55,leafY,'B','B'); }
+    if(step>=3){ g+=tnode(rX-55,leafY,'B','B'); g+=tnode(rX+55,leafY,'A','A'); }
+    document.getElementById('tree').innerHTML=g;
+  }
+
+  var EX=[
+    {t:'ข้อมูลเริ่มต้น — ปนกันหมด', f:'Gini ≈ 0.5 (ผสม 50/50 = ไม่บริสุทธิ์สุด ๆ)',
+     b:'จุดสองคลาสวางแบบ XOR (A อยู่มุมทแยง, B อยู่อีกคู่มุม) — เส้นตรงเส้นเดียวแบ่งไม่ได้ ต้องถามหลายคำถามซ้อนกัน'},
+    {t:'แตกกิ่งที่ 1 — ถาม x < 5 ?', f:'แบ่งเป็นซ้าย/ขวา — แต่ละข้างยัง "ผสม" อยู่',
+     b:'ต้นไม้เลือก feature และค่าที่ <b>แบ่งแล้วลด Gini ได้มากสุด</b> รอบนี้คือ x = 5 — แต่ละข้างยังมีทั้ง A และ B จึงต้องถามต่อ'},
+    {t:'แตกกิ่งที่ 2 — ฝั่งซ้าย ถาม y < 5 ?', f:'ฝั่งซ้ายแยกเป็น 2 กลุ่ม Gini = 0 (บริสุทธิ์!)',
+     b:'ในเขต x &lt; 5 ถาม y = 5 → ล่างเป็น <b>A</b> ล้วน, บนเป็น <b>B</b> ล้วน — สองใบนี้ "บริสุทธิ์" แล้ว หยุดแตกกิ่งได้'},
+    {t:'แตกกิ่งที่ 3 — ฝั่งขวา ถาม y < 5 ?', f:'ฝั่งขวาแยกเป็น 2 กลุ่มบริสุทธิ์เช่นกัน',
+     b:'ทำแบบเดียวกันกับเขต x ≥ 5 → ได้ใบบริสุทธิ์อีก 2 ใบ ตอนนี้ทุกจุดถูกแยกถูกหมดแล้ว'},
+    {t:'ต้นไม้สมบูรณ์ 🌳', f:'4 ใบบริสุทธิ์ → decision boundary เป็นบล็อกตั้งฉาก',
+     b:'<b>จุดเด่น:</b> อ่านเข้าใจง่าย (เป็นกฎ if-else) | <b>จุดด้อย:</b> ถ้าปล่อยให้ลึกเกินจะ <b>overfit</b> (จำ noise) — ของจริงจึงจำกัดความลึก หรือใช้หลายต้นรวมกัน (Random Forest / XGBoost)'},
+  ];
+
+  function render(){
+    document.getElementById('stepFill').style.width=(step/(TOTAL-1)*100)+'%';
+    document.getElementById('stepCounter').textContent=`ขั้นที่ ${step+1} / ${TOTAL}`;
+    drawPlot(); drawTree();
+    var e=EX[step];
+    document.getElementById('explainTitle').textContent=e.t;
+    document.getElementById('explainBody').innerHTML=e.b+(e.f?`<span class="formula">${e.f}</span>`:'');
+    document.getElementById('prevBtn').disabled=step===0;
+    document.getElementById('nextBtn').disabled=step===TOTAL-1;
+  }
+  function stop(){ playing=false; document.getElementById('playBtn').textContent='▶ เล่นอัตโนมัติ'; document.getElementById('playBtn').classList.remove('playing'); clearInterval(timer); }
+  function play(){ playing=true; document.getElementById('playBtn').textContent='⏸ หยุด'; document.getElementById('playBtn').classList.add('playing');
+    timer=setInterval(()=>{ if(step>=TOTAL-1){ stop(); return; } step++; render(); }, 1700); }
+  document.getElementById('prevBtn').onclick=()=>{ stop(); step=Math.max(0,step-1); render(); };
+  document.getElementById('nextBtn').onclick=()=>{ stop(); step=Math.min(TOTAL-1,step+1); render(); };
+  document.getElementById('playBtn').onclick=()=>{ playing?stop():play(); };
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight'){stop();step=Math.min(TOTAL-1,step+1);render();} if(e.key==='ArrowLeft'){stop();step=Math.max(0,step-1);render();} });
+  render();
+</script>
+</body>
+</html>

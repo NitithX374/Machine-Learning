@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gradient Descent Visualizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    --bg:#11161D; --panel:#1A222C; --panel2:#212B37; --border:#2C3744;
+    --text:#E6EAF0; --dim:#8A96A6; --scan:#4FD8C9; --result:#F5A75C;
+    --pool:#C792EA; --flat:#7FB3FF; --mlp:#9BE15D;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Sarabun',sans-serif;
+        display:flex; justify-content:center; padding:20px 12px 40px; -webkit-font-smoothing:antialiased; }
+  .app{ width:100%; max-width:440px; }
+  a.back{ font-size:12px; color:var(--dim); text-decoration:none; }
+  a.back:hover{ color:var(--scan); }
+  .eyebrow{ font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--scan); font-weight:600; margin:10px 0 4px; }
+  h1{ font-size:20px; margin:0 0 4px; font-weight:700; }
+  .subtitle{ font-size:12px; color:var(--dim); margin:0 0 14px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+  svg{ width:100%; display:block; }
+  text{ font-family:'JetBrains Mono',monospace; }
+  .stats{ display:flex; gap:10px; margin-bottom:12px; }
+  .stat{ flex:1; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+  .stat .k{ font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  .stat .v{ font-size:20px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .ctrlrow{ display:flex; align-items:center; gap:10px; margin:10px 0; }
+  .ctrlrow label{ font-size:12px; color:var(--dim); min-width:96px; }
+  .ctrlrow .val{ font-size:13px; font-weight:700; font-family:'JetBrains Mono',monospace; min-width:42px; text-align:right; }
+  input[type=range]{ flex:1; accent-color:var(--scan); }
+  .controls{ display:flex; gap:8px; margin-top:4px; }
+  .controls button{ flex:1; padding:10px; border-radius:10px; border:1px solid var(--border);
+                     background:var(--panel); color:var(--text); font-family:'Sarabun',sans-serif;
+                     font-size:13px; font-weight:600; cursor:pointer; transition:.2s; }
+  .controls button:hover{ border-color:var(--scan); color:var(--scan); }
+  #playBtn.playing{ background:rgba(79,216,201,.15); border-color:var(--scan); color:var(--scan); }
+  #explainTitle{ font-weight:700; margin-bottom:6px; font-size:14px; }
+  #explainBody{ font-size:13.5px; line-height:1.65; color:var(--dim); }
+  #explainBody b{ color:var(--text); }
+  #status{ font-weight:700; }
+</style>
+</head>
+<body>
+<div class="app">
+  <a class="back" href="index.html">← กลับหน้ารวม</a>
+  <div class="eyebrow">แกนของการ optimize ทุกโมเดล</div>
+  <h1>Gradient Descent</h1>
+  <p class="subtitle">ลูกบอลไถลลง “เนินของ loss” ตามความชัน — ปรับ learning rate ดูว่ามันลู่เข้าหรือกระเด็นหลุด</p>
+
+  <div class="stats">
+    <div class="stat"><div class="k">step</div><div class="v" id="stOut">0</div></div>
+    <div class="stat"><div class="k">x</div><div class="v" id="xOut">0.00</div></div>
+    <div class="stat"><div class="k">loss</div><div class="v" id="loOut">0.00</div></div>
+  </div>
+
+  <div class="panel"><svg id="plot" viewBox="0 0 360 230"></svg></div>
+
+  <div class="panel">
+    <div class="ctrlrow">
+      <label>learning rate</label>
+      <input type="range" id="lr" min="0.01" max="1.2" step="0.01" value="0.15">
+      <span class="val" id="lrV">0.15</span>
+    </div>
+    <div class="ctrlrow">
+      <label>จุดเริ่ม x</label>
+      <input type="range" id="x0" min="-3.1" max="3.1" step="0.1" value="-2.9">
+      <span class="val" id="x0V">-2.9</span>
+    </div>
+    <div class="controls">
+      <button id="playBtn">▶ ปล่อยลูกบอล</button>
+      <button id="stepBtn">+1 step</button>
+      <button id="resetBtn">↺ รีเซ็ต</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="explainTitle">ลอง 3 แบบนี้ดู</div>
+    <div id="explainBody"><b>lr น้อย</b> (0.05) → ค่อย ๆ คืบ ช้าแต่ชัวร์ · <b>lr พอดี</b> (0.15) → ลงถึงก้นเนินไว ·
+    <b>lr สูง</b> (>0.9) → กระโดดข้ามก้นไปมา <b>แกว่ง/กระเด็นหลุด</b> · และลองเลื่อนจุดเริ่มไปฝั่งขวา
+    จะเห็นมันตกใน <b>local minimum</b> คนละหลุม — GD ไปได้แค่ก้นหลุมที่ใกล้สุด ไม่รับรองว่าดีที่สุด</div>
+  </div>
+</div>
+
+<script>
+  // loss: double-well (asymmetric) -> มี local + global minimum
+  function L(x){ return (x*x-4)*(x*x-4)/8 + 0.15*x; }
+  function dL(x){ return (x*x-4)*x/2 + 0.15; }
+  var XMIN=-3.2, XMAX=3.2, YMIN=-0.6, YMAX=5.6;
+  var PADL=8, PADR=8, PADT=12, PADB=12, W=360, Hh=230;
+  function px(x){ return PADL + (x-XMIN)/(XMAX-XMIN)*(W-PADL-PADR); }
+  function py(v){ return (Hh-PADB) - (v-YMIN)/(YMAX-YMIN)*(Hh-PADT-PADB); }
+
+  var x, lr=0.15, st=0, trail=[], running=false, raf=null;
+  function reset(){ x=+document.getElementById('x0').value; st=0; trail=[x]; }
+
+  function drawPlot(){
+    var g='';
+    // axis baseline
+    g+=`<line x1="${px(XMIN)}" y1="${py(0)}" x2="${px(XMAX)}" y2="${py(0)}" stroke="#212B37" stroke-width="1"/>`;
+    // loss curve
+    var pts=[]; for(var i=0;i<=160;i++){ var xx=XMIN+(XMAX-XMIN)*i/160; pts.push(px(xx)+','+py(L(xx))); }
+    g+=`<polyline points="${pts.join(' ')}" fill="none" stroke="#4FD8C9" stroke-width="2.5"/>`;
+    // trail
+    for(var t=0;t<trail.length;t++){
+      var op=0.12+0.5*t/Math.max(1,trail.length);
+      g+=`<circle cx="${px(trail[t])}" cy="${py(L(trail[t]))}" r="3" fill="#F5A75C" opacity="${op.toFixed(2)}"/>`;
+    }
+    // gradient (tangent) arrow at current point
+    var gx=dL(x), nx=x-lr*gx;
+    g+=`<line x1="${px(x)}" y1="${py(L(x))}" x2="${px(nx)}" y2="${py(L(x))}" stroke="#9BE15D" stroke-width="2" marker-end="url(#ah)"/>`;
+    // ball
+    g+=`<circle cx="${px(x)}" cy="${py(L(x))}" r="8" fill="#F5A75C" stroke="#11161D" stroke-width="2"/>`;
+    document.getElementById('plot').innerHTML =
+      `<defs><marker id="ah" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#9BE15D"/></marker></defs>`+g;
+  }
+  function status(){
+    var s;
+    if(Math.abs(x)>6 || !isFinite(x)) s='<span id="status" style="color:#E24B4A">💥 กระเด็นหลุด! (lr สูงไป)</span>';
+    else if(Math.abs(dL(x))<0.02) s='<span id="status" style="color:#9BE15D">✓ ถึงก้นหลุมแล้ว (gradient ≈ 0)</span>';
+    else s='<span id="status" style="color:#8A96A6">กำลังไถลลง…</span>';
+    return s;
+  }
+  function render(){
+    document.getElementById('stOut').textContent=st;
+    document.getElementById('xOut').textContent=(isFinite(x)?x.toFixed(2):'∞');
+    document.getElementById('loOut').textContent=(isFinite(L(x))&&Math.abs(x)<6?L(x).toFixed(2):'∞');
+    drawPlot();
+  }
+  function step(){ var gx=dL(x); x=x-lr*gx; st++; if(Math.abs(x)<6) trail.push(x); if(trail.length>60) trail.shift(); }
+  function loop(){ if(!running) return; step(); render();
+    if(Math.abs(dL(x))<0.01 || Math.abs(x)>8){ running=false; setBtn(); return; }
+    raf=setTimeout(()=>requestAnimationFrame(loop), 90); }
+  var pb=document.getElementById('playBtn');
+  function setBtn(){ pb.textContent=running?'⏸ หยุด':'▶ ปล่อยลูกบอล'; pb.classList.toggle('playing',running); }
+  pb.onclick=function(){ running=!running; setBtn(); if(running) loop(); };
+  document.getElementById('stepBtn').onclick=function(){ step(); render(); };
+  document.getElementById('resetBtn').onclick=function(){ running=false; setBtn(); if(raf) clearTimeout(raf); reset(); render(); };
+  document.getElementById('lr').oninput=function(){ lr=+this.value; document.getElementById('lrV').textContent=lr.toFixed(2); };
+  document.getElementById('x0').oninput=function(){ document.getElementById('x0V').textContent=(+this.value).toFixed(1); running=false; setBtn(); if(raf) clearTimeout(raf); reset(); render(); };
+  reset(); render();
+</script>
+</body>
+</html>

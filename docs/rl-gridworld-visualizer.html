@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RL Gridworld Visualizer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    --bg:#11161D; --panel:#1A222C; --panel2:#212B37; --border:#2C3744;
+    --text:#E6EAF0; --dim:#8A96A6; --scan:#4FD8C9; --result:#F5A75C;
+    --pool:#C792EA; --flat:#7FB3FF; --mlp:#9BE15D;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Sarabun',sans-serif;
+        display:flex; justify-content:center; padding:20px 12px 40px; -webkit-font-smoothing:antialiased; }
+  .app{ width:100%; max-width:440px; }
+  a.back{ font-size:12px; color:var(--dim); text-decoration:none; }
+  a.back:hover{ color:var(--pool); }
+  .eyebrow{ font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--pool); font-weight:600; margin:10px 0 4px; }
+  h1{ font-size:20px; margin:0 0 4px; font-weight:700; }
+  .subtitle{ font-size:12px; color:var(--dim); margin:0 0 14px; }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px; }
+  svg{ width:100%; display:block; }
+  text{ font-family:'JetBrains Mono',monospace; }
+  .stats{ display:flex; gap:8px; margin-bottom:12px; }
+  .stat{ flex:1; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:9px 10px; }
+  .stat .k{ font-size:10.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
+  .stat .v{ font-size:18px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .ctrlrow{ display:flex; align-items:center; gap:10px; margin:4px 0 8px; }
+  .ctrlrow label{ font-size:12px; color:var(--dim); min-width:64px; }
+  input[type=range]{ flex:1; accent-color:var(--pool); }
+  .controls{ display:flex; gap:8px; }
+  .controls button{ flex:1; padding:10px; border-radius:10px; border:1px solid var(--border);
+                     background:var(--panel); color:var(--text); font-family:'Sarabun',sans-serif;
+                     font-size:13px; font-weight:600; cursor:pointer; transition:.2s; }
+  .controls button:hover{ border-color:var(--pool); color:var(--pool); }
+  #playBtn.playing{ background:rgba(199,146,234,.15); border-color:var(--pool); color:var(--pool); }
+  #explainTitle{ font-weight:700; margin-bottom:6px; font-size:14px; }
+  #explainBody{ font-size:13.5px; line-height:1.65; color:var(--dim); }
+  #explainBody b{ color:var(--text); }
+  .legend{ display:flex; justify-content:center; gap:14px; font-size:11.5px; color:var(--dim); margin-top:8px; flex-wrap:wrap; }
+  .sw{ display:inline-block; width:11px; height:11px; border-radius:3px; vertical-align:middle; margin-right:4px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <a class="back" href="index.html">← กลับหน้ารวม</a>
+  <div class="eyebrow">Reinforcement Learning — เรียนจาก reward</div>
+  <h1>Q-Learning Gridworld</h1>
+  <p class="subtitle">กด “เทรน” แล้วดู agent ลองผิดลองถูกจนหาทางไปเป้า — ลูกศร policy + ค่า value ก่อตัวเอง</p>
+
+  <div class="stats">
+    <div class="stat"><div class="k">episode</div><div class="v" id="epOut">0</div></div>
+    <div class="stat"><div class="k">ε (สำรวจ)</div><div class="v" id="epsOut">1.00</div></div>
+    <div class="stat"><div class="k">reward ล่าสุด</div><div class="v" id="rwOut">–</div></div>
+  </div>
+
+  <div class="panel">
+    <svg id="grid" viewBox="0 0 300 300"></svg>
+    <div class="legend">
+      <span><span class="sw" style="background:#9BE15D"></span>เป้า +10</span>
+      <span><span class="sw" style="background:#E24B4A"></span>หลุม −10</span>
+      <span><span class="sw" style="background:#C792EA"></span>agent</span>
+      <span>สีเขียวเข้ม = value สูง · ลูกศร = ทางที่ดีสุด</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ctrlrow">
+      <label>ความเร็ว</label>
+      <input type="range" id="spd" min="1" max="60" step="1" value="22">
+    </div>
+    <div class="controls">
+      <button id="playBtn">▶ เทรน</button>
+      <button id="epBtn">+1 ตอน</button>
+      <button id="resetBtn">↺ รีเซ็ต</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="explainTitle">วงจร RL</div>
+    <div id="explainBody">agent อยู่ในช่อง (state) → เลือกเดิน (action) → ได้ reward + ช่องใหม่ → อัปเดต <b>Q-value</b>
+    ด้วยสมการ Bellman ตอนแรก ε สูง = สุ่มสำรวจมั่ว ๆ พอเรียนรู้แล้ว ε ลด = เริ่มใช้ความรู้เดินตรงไปเป้า
+    <b>ดูค่า value (สีเขียว) ค่อย ๆ ไหลออกจากเป้า</b> และลูกศรชี้ทางไปเป้าพร้อมหลบหลุม</div>
+  </div>
+</div>
+
+<script>
+  var R=6,C=6, START=[0,0], GOAL=[5,5];
+  var PITS={'1,1':1,'1,3':1,'3,2':1,'2,4':1,'4,4':1};
+  var A=[[-1,0],[1,0],[0,-1],[0,1]]; // up down left right
+  function key(r,c){ return r+','+c; }
+  function isPit(r,c){ return PITS[key(r,c)]===1; }
+  function isGoal(r,c){ return r===GOAL[0]&&c===GOAL[1]; }
+  function terminal(r,c){ return isGoal(r,c)||isPit(r,c); }
+
+  var Q, eps, alpha=0.5, gamma=0.95, ep, agent, steps, lastR, running=false, timer=null;
+  function initQ(){
+    Q={}; for(var r=0;r<R;r++) for(var c=0;c<C;c++) Q[key(r,c)]=[0,0,0,0];
+    eps=1.0; ep=0; lastR=null; resetAgent();
+  }
+  function resetAgent(){ agent=[START[0],START[1]]; steps=0; }
+  function argmax(a){ var bi=0; for(var i=1;i<4;i++) if(a[i]>a[bi]) bi=i; return bi; }
+  function move(r,c,a){ var nr=Math.min(Math.max(r+A[a][0],0),R-1), nc=Math.min(Math.max(c+A[a][1],0),C-1); return [nr,nc]; }
+  function reward(r,c){ if(isGoal(r,c)) return 10; if(isPit(r,c)) return -10; return -0.1; }
+
+  function qstep(){
+    var r=agent[0], c=agent[1];
+    var a = Math.random()<eps ? (Math.random()*4|0) : argmax(Q[key(r,c)]);
+    var nx=move(r,c,a), nr=nx[0], nc=nx[1];
+    var rw=reward(nr,nc);
+    var target = terminal(nr,nc) ? rw : rw + gamma*Math.max.apply(null,Q[key(nr,nc)]);
+    Q[key(r,c)][a] += alpha*(target - Q[key(r,c)][a]);
+    agent=[nr,nc]; steps++;
+    if(terminal(nr,nc) || steps>=80){
+      lastR = terminal(nr,nc)&&isGoal(nr,nc) ? '+10 ✓' : (isPit(nr,nc)?'−10 ✗':'หมดเวลา');
+      ep++; eps=Math.max(0.05, eps*0.985); resetAgent();
+    }
+  }
+
+  // ---------- render ----------
+  var PAD=6, CELL=(300-2*PAD)/6;
+  function cx(c){ return PAD+c*CELL; }
+  function cy(r){ return PAD+r*CELL; }
+  function valColor(v,vmin,vmax){
+    if(vmax-vmin<1e-6) return 'rgba(33,43,55,0.6)';
+    var t=(v-vmin)/(vmax-vmin); // 0..1
+    return 'rgba(155,225,93,'+(0.06+0.5*t).toFixed(2)+')';
+  }
+  function draw(){
+    // value range over non-terminal cells
+    var vs=[]; for(var r=0;r<R;r++) for(var c=0;c<C;c++){ if(!terminal(r,c)) vs.push(Math.max.apply(null,Q[key(r,c)])); }
+    var vmin=Math.min.apply(null,vs), vmax=Math.max.apply(null,vs);
+    var g='';
+    for(r=0;r<R;r++) for(c=0;c<C;c++){
+      var x=cx(c), y=cy(r), fill;
+      if(isGoal(r,c)) fill='rgba(155,225,93,.85)';
+      else if(isPit(r,c)) fill='rgba(226,75,74,.8)';
+      else fill=valColor(Math.max.apply(null,Q[key(r,c)]),vmin,vmax);
+      g+=`<rect x="${x}" y="${y}" width="${CELL-1.5}" height="${CELL-1.5}" rx="4" fill="${fill}" stroke="#2C3744" stroke-width="1"/>`;
+      // policy arrow
+      if(!terminal(r,c)){
+        var bestA=argmax(Q[key(r,c)]);
+        var qv=Math.max.apply(null,Q[key(r,c)]);
+        if(qv!==0 || vs.length){
+          var ccx=x+CELL/2, ccy=y+CELL/2, dx=A[bestA][1], dy=A[bestA][0], L=CELL*0.26;
+          g+=`<line x1="${ccx-dx*L}" y1="${ccy-dy*L}" x2="${ccx+dx*L}" y2="${ccy+dy*L}" stroke="#E6EAF0" stroke-width="2" opacity="0.55" marker-end="url(#pa)"/>`;
+        }
+      }
+    }
+    // labels
+    g+=`<text x="${cx(GOAL[1])+CELL/2}" y="${cy(GOAL[0])+CELL/2+4}" fill="#173404" font-size="13" font-weight="700" text-anchor="middle">★</text>`;
+    Object.keys(PITS).forEach(function(k){ var p=k.split(',').map(Number);
+      g+=`<text x="${cx(p[1])+CELL/2}" y="${cy(p[0])+CELL/2+4}" fill="#501313" font-size="12" font-weight="700" text-anchor="middle">✕</text>`; });
+    // agent
+    g+=`<circle cx="${cx(agent[1])+CELL/2}" cy="${cy(agent[0])+CELL/2}" r="${CELL*0.26}" fill="#C792EA" stroke="#11161D" stroke-width="2"/>`;
+    document.getElementById('grid').innerHTML =
+      `<defs><marker id="pa" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L5,3 L0,6 Z" fill="#E6EAF0"/></marker></defs>`+g;
+  }
+  function render(){
+    document.getElementById('epOut').textContent=ep;
+    document.getElementById('epsOut').textContent=eps.toFixed(2);
+    document.getElementById('rwOut').textContent=lastR===null?'–':lastR;
+    draw();
+  }
+  function tick(){ if(!running) return; var n=+document.getElementById('spd').value;
+    for(var i=0;i<Math.max(1,Math.round(n/12));i++) qstep(); render();
+    timer=setTimeout(tick, Math.max(16, 120-n*1.7)); }
+  var pb=document.getElementById('playBtn');
+  function setBtn(){ pb.textContent=running?'⏸ หยุด':'▶ เทรน'; pb.classList.toggle('playing',running); }
+  pb.onclick=function(){ running=!running; setBtn(); if(running) tick(); };
+  document.getElementById('epBtn').onclick=function(){ var e0=ep; var guard=0; while(ep===e0 && guard++<200) qstep(); render(); };
+  document.getElementById('resetBtn').onclick=function(){ running=false; setBtn(); if(timer) clearTimeout(timer); initQ(); render(); };
+  initQ(); render();
+</script>
+</body>
+</html>
